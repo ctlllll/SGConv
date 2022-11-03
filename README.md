@@ -5,6 +5,7 @@
 ## Update log
 
 - 10/17/2022: Core code released.
+- 11/3/2022: Standalone code released. Easier to use if you want to try SGConv on your own model!
 - Upcoming: Full code release.
 
 ## Overview
@@ -30,7 +31,30 @@ SGConv exhibits strong empirical performance over several tasks:
 
 ## Code
 
-Based on the amazing [codebase](https://github.com/HazyResearch/state-spaces) by HazyResearch.
+Based on the amazing [codebase](https://github.com/HazyResearch/state-spaces) by HazyResearch. Please refer to the repo to install the dependencies.
+
+### Standalone
+In *gconv_standalone.py*, we provide a standalone implementation of SGConv. You can use it as a drop-in replacement for your existing models. The example of how to use it is shown in *test.ipynb*, where we tried on sequence with *1M* tokens and it cost ~20GB GPU memory per layer.
+
+```python
+import torch
+from gconv_standalone import GConv
+
+layer = GConv(
+    d_model=256,
+    d_state=64,
+    l_max=1_000_000,
+    bidirectional=True,
+    kernel_dim=32,
+    n_scales=None,
+    decay_min=2,
+    decay_max=2,
+)
+
+x = torch.randn(1, 256, 1_000_000)
+y, k = layer(x, return_kernel=True)
+```
+
 
 ## Citation
 

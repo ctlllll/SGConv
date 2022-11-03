@@ -116,8 +116,8 @@ class GConv(nn.Module):
             self.num_scales = 1 + math.ceil(math.log2(l_max/self.kernel_dim)) - self.init_scale
         self.kernel_list = nn.ParameterList()
 
-        decay_min = kernel_args.get('decay_min', 1)
-        decay_max = kernel_args.get('decay_max', 4)
+        decay_min = kernel_args.get('decay_min', 2)
+        decay_max = kernel_args.get('decay_max', 2)
         
         for _ in range(self.num_scales):
             if 'randn' in mode:
