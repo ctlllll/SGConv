@@ -1,0 +1,43 @@
+# @package _global_
+defaults:
+  - /pipeline: cifar
+  - /model: s4
+  - override /scheduler: cosine_warmup
+
+model:
+  dropout: 0.2
+  tie_dropout: true
+  n_layers: 6
+  d_model: 512
+  prenorm: false
+  norm: layer
+  layer:
+    _name_: gconv
+    n_scales: null
+    kernel_dim: 32
+    lr: 0.001
+    bidirectional: true
+    postact: glu
+    mode: cat_randn_learnable_fixed
+    decay_min: 1
+    decay_max: 1
+    l_max: 1024
+
+dataset:
+  grayscale: true
+
+loader:
+  batch_size: 50
+
+optimizer:
+  lr: 0.01
+  weight_decay: 0.05
+
+trainer:
+  max_epochs: 200
+
+scheduler:
+  num_training_steps: 200000
+
+train:
+  seed: 2222

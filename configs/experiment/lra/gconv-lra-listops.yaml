@@ -1,0 +1,42 @@
+# @package _global_
+defaults:
+  - /pipeline: listops
+  - /model: s4
+  - override /scheduler: cosine_warmup
+
+model:
+  dropout: 0.
+  n_layers: 8
+  d_model: 128
+  prenorm: false
+  norm: batch
+  layer:
+    _name_: gconv
+    n_scales: null
+    kernel_dim: 1
+    lr: 0.001
+    bidirectional: true
+    postact: glu
+    mode: cat_randn
+    decay_min: 2
+    decay_max: 2
+
+decoder:
+  mode: pool
+
+loader:
+  batch_size: 50
+
+optimizer:
+  lr: 0.01
+  weight_decay: 0.05
+
+scheduler:
+  num_training_steps: 80000
+  # patience: 5
+
+trainer:
+  max_epochs: 40
+
+train:
+  seed: 2222

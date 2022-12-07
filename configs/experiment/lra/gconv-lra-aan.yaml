@@ -1,0 +1,41 @@
+# @package _global_
+defaults:
+  - /pipeline: aan
+  - /model: s4
+  - override /scheduler: cosine_warmup
+
+scheduler:
+  num_training_steps: 50000 # 20 epochs
+  num_warmup_steps: 2500 # 1 epoch
+
+model:
+  dropout: 0.
+  n_layers: 6
+  prenorm: true
+  d_model: 256
+  norm: batch
+  layer:
+    _name_: gconv
+    n_scales: null
+    kernel_dim: 1
+    lr: 0.001
+    bidirectional: true
+    postact: glu
+    mode: cat_randn
+    decay_min: 2
+    decay_max: 2
+
+loader:
+  batch_size: 32
+
+optimizer:
+  lr: 0.01
+  weight_decay: 0.05
+
+trainer:
+  max_epochs: 20
+  gpus: 2
+
+train:
+  seed: 2222
+  interval: step

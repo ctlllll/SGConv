@@ -1,0 +1,36 @@
+# @package _global_
+defaults:
+  - /pipeline: cifar
+  - /model: s4
+  - override /model/layer: s4d_example
+  - override /scheduler: cosine_warmup
+
+model:
+  dropout: 0.1
+  tie_dropout: true
+  n_layers: 4
+  d_model: 128
+  prenorm: false
+  layer:
+    d_state: 64
+    lr: 0.001
+    # Compared to the full S4D layer, this model has the following on by default:
+    # scaling: linear
+    # postact: glu
+    # bidirectional: false
+
+loader:
+  batch_size: 50
+
+optimizer:
+  lr: 0.01
+  weight_decay: 0.01
+
+trainer:
+  max_epochs: 100
+
+scheduler:
+  num_training_steps: 100000
+
+train:
+  seed: 1111

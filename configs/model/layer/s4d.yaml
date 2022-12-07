@@ -1,0 +1,5 @@
+defaults:
+  - s4
+
+mode: diag
+measure: diag-lin
