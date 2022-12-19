@@ -394,31 +394,47 @@ class GConv(nn.Module):
             u = u.transpose(-1, -2)
         L = u.size(-1)
 
-        kernel_list = []
+        if self.kernel_norm_initialized:
+            kernel_dim = L
+        else:
+            kernel_dim = self.kernel_dim*2**(self.num_scales-1+self.init_scale)
+        k = torch.zeros(
+                (self.channels, self.h, kernel_dim),
+                dtype=self.kernel_list[0].dtype,
+                device=self.kernel_list[0].device,
+            )
         interpolate_mode = 'nearest' if 'nearest' in self.mode else 'linear'
         multiplier = self.multiplier
         if 'sum' in self.mode:
             for i in range(self.num_scales):
-                kernel = F.pad(
-                    F.interpolate(
-                        self.kernel_list[i],
-                        scale_factor=2**(i+self.init_scale),
+                scale_factor = 2**(i+self.init_scale)
+                input_size = self.kernel_dim
+                if self.kernel_norm_initialized:
+                    input_size = min(math.ceil(L / scale_factor) + 1, input_size)
+                output_size = min(kernel_dim, input_size * scale_factor)
+                k[...,:output_size] += F.interpolate(
+                        self.kernel_list[i][...,:input_size]
+                         * multiplier ** (self.num_scales - i - 1),
+                        scale_factor=scale_factor,
                         mode=interpolate_mode,
-                    ),
-                    (0, self.kernel_dim*2**(self.num_scales-1+self.init_scale) -
-                     self.kernel_dim*2**(i+self.init_scale)),
-                ) * multiplier ** (self.num_scales - i - 1)
-                kernel_list.append(kernel)
-            k = sum(kernel_list)
+                    )[...,:output_size]
         elif 'cat' in self.mode:
+            k_offset = 0
             for i in range(self.num_scales):
-                kernel = F.interpolate(
-                    self.kernel_list[i],
-                    scale_factor=2**(max(0, i-1)+self.init_scale),
-                    mode=interpolate_mode,
-                ) * multiplier ** (self.num_scales - i - 1)
-                kernel_list.append(kernel)
-            k = torch.cat(kernel_list, dim=-1)
+                scale_factor = 2**(max(0, i-1)+self.init_scale)
+                input_size = self.kernel_dim
+                k_remaining = kernel_dim - k_offset
+                if self.kernel_norm_initialized:
+                    input_size = min(math.ceil(k_remaining / scale_factor) + 1, input_size)
+                output_size = min(k_remaining, input_size * scale_factor)
+                k_offset_next = k_offset + output_size
+                k[...,k_offset:k_offset_next] = F.interpolate(
+                        self.kernel_list[i][...,:input_size]
+                         * multiplier ** (self.num_scales - i - 1),
+                        scale_factor=scale_factor,
+                        mode=interpolate_mode,
+                    )[...,:output_size]
+                k_offset = k_offset_next
         else:
             raise ValueError(f"Unknown mode {self.mode}")
 
