@@ -378,7 +378,7 @@ class GConv(nn.Module):
             self.register_buffer('multiplier', torch.linspace(
                 decay_min, decay_max, self.h).view(1, -1, 1))
 
-        self.register_buffer('kernel_norm', torch.ones(self.h, 1))
+        self.register_buffer('kernel_norm', torch.ones(channels, self.h, 1))
         self.register_buffer('kernel_norm_initialized',
                              torch.tensor(0, dtype=torch.bool))
 
