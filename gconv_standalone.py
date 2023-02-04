@@ -262,6 +262,7 @@ class GConv(nn.Module):
         l_max=1,  # Maximum length of sequence. Fine if not provided: the kernel will keep doubling in length until longer than sequence. However, this can be marginally slower if the true length is not a power of 2
         channels=1,  # maps 1-dim to C-dim
         bidirectional=False,
+        conv_tile=None, # for lower ram situations, convolve only this much sequence at once
         # Arguments for FF
         activation='gelu',  # activation in between SS and FF
         ln=False,  # Extra normalization
@@ -301,6 +302,7 @@ class GConv(nn.Module):
         self.linear = linear
         self.mode = mode
         self.l_max = l_max
+        self.conv_tile = conv_tile
 
         # optional multiplicative modulation GLU-style
         # https://arxiv.org/abs/2002.05202
@@ -394,31 +396,46 @@ class GConv(nn.Module):
             u = u.transpose(-1, -2)
         L = u.size(-1)
 
-        kernel_list = []
+        if self.kernel_norm_initialized:
+            kernel_dim = L
+        else:
+            kernel_dim = self.kernel_dim*2**(self.num_scales-1+self.init_scale)
+        k = torch.zeros(
+                (self.channels, self.h, kernel_dim),
+                dtype=self.kernel_list[0].dtype,
+                device=self.kernel_list[0].device,
+            )
         interpolate_mode = 'nearest' if 'nearest' in self.mode else 'linear'
         multiplier = self.multiplier
         if 'sum' in self.mode:
             for i in range(self.num_scales):
-                kernel = F.pad(
-                    F.interpolate(
-                        self.kernel_list[i],
-                        scale_factor=2**(i+self.init_scale),
+                scale_factor = 2**(i+self.init_scale)
+                input_size = self.kernel_dim
+                if self.kernel_norm_initialized:
+                    input_size = min(math.ceil(L / scale_factor) + 1, input_size)
+                output_size = min(kernel_dim, input_size * scale_factor)
+                k[...,:output_size] += F.interpolate(
+                        self.kernel_list[i][...,:input_size]
+                         * multiplier ** (self.num_scales - i - 1),
+                        scale_factor=scale_factor,
                         mode=interpolate_mode,
-                    ),
-                    (0, self.kernel_dim*2**(self.num_scales-1+self.init_scale) -
-                     self.kernel_dim*2**(i+self.init_scale)),
-                ) * multiplier ** (self.num_scales - i - 1)
-                kernel_list.append(kernel)
-            k = sum(kernel_list)
+                    )[...,:output_size]
         elif 'cat' in self.mode:
+            k_i = 0
             for i in range(self.num_scales):
-                kernel = F.interpolate(
-                    self.kernel_list[i],
-                    scale_factor=2**(max(0, i-1)+self.init_scale),
-                    mode=interpolate_mode,
-                ) * multiplier ** (self.num_scales - i - 1)
-                kernel_list.append(kernel)
-            k = torch.cat(kernel_list, dim=-1)
+                scale_factor = 2**(max(0, i-1)+self.init_scale)
+                input_size = self.kernel_dim
+                k_remaining = kernel_dim - k_i
+                if self.kernel_norm_initialized:
+                    input_size = min(math.ceil(k_remaining / scale_factor) + 1, input_size)
+                output_size = min(k_remaining, input_size * scale_factor)
+                k[...,k_i:k_i+output_size] = F.interpolate(
+                        self.kernel_list[i][...,:input_size]
+                         * multiplier ** (self.num_scales - i - 1),
+                        scale_factor=scale_factor,
+                        mode=interpolate_mode,
+                    )[...,:output_size]
+                k_i += output_size
         else:
             raise ValueError(f"Unknown mode {self.mode}")
 
@@ -446,11 +463,29 @@ class GConv(nn.Module):
             k = F.pad(k0, (0, L)) \
                 + F.pad(k1.flip(-1), (L, 0)) \
 
-        k_f = torch.fft.rfft(k, n=2*L)  # (C H L)
-        u_f = torch.fft.rfft(u, n=2*L)  # (B H L)
-        # k_f.unsqueeze(-4) * u_f.unsqueeze(-3) # (B C H L)
-        y_f = contract('bhl,chl->bchl', u_f, k_f)
-        y = torch.fft.irfft(y_f, n=2*L)[..., :L]  # (B C H L)
+        conv_tile = self.conv_tile
+        if not self.conv_tile:
+            conv_tile = k.size(-1)
+
+        # Overlap-Add Algorithm for Tiled Convolution
+        y = torch.zeros( # (B C H L)
+            (u.size(0), self.channels, self.h, L),
+            dtype = u.dtype,
+            device = u.device
+        )
+        y_tile_max = conv_tile * 2 - 1
+        for k_i in range(0, k.size(-1), conv_tile):
+            k_tile = k[..., k_i : k_i + conv_tile]
+            k_f = torch.fft.rfft(k_tile, n=y_tile_max)  # (C H L)
+            # todo: the user could provide an offset to provide large u in chunks
+            for y_i in range(k_i, u.size(-1), conv_tile):
+                u_i = y_i - k_i
+                u_tile = u[..., u_i : u_i + conv_tile]
+                u_f = torch.fft.rfft(u_tile, n=y_tile_max)  # (B H L)
+                # k_f.unsqueeze(-4) * u_f.unsqueeze(-3) # (B C H L)
+                y_f = contract('bhl,chl->bchl', u_f, k_f)
+                y_tile = y[..., y_i : y_i + y_tile_max]
+                y_tile += torch.fft.irfft(y_f, n=y_tile_max)[..., : y_tile.size(-1)]
 
         # Compute D term in state space equation - essentially a skip connection
         y = y + contract('bhl,ch->bchl', u, self.D)
